@@ -7,6 +7,20 @@ import streamlit as st
 import os
 from dotenv import load_dotenv
 from collections import Counter
+import re
+from unidecode import unidecode
+
+import streamlit as st
+
+# Set the width of the screen
+st.set_page_config(
+    layout="wide",
+    initial_sidebar_state="collapsed",
+    page_title="CrApp",
+    page_icon=":poop:")
+
+# Your Streamlit app code goes here
+
 
 # Function to extract video ID from URL
 def get_video_id(url):
@@ -27,52 +41,79 @@ def get_video_id(url):
 load_dotenv()
 DEVELOPER_KEY = os.environ.get('DEVELOPER_KEY')
 
-def start_crapp(video_id):
+col1, col2, col3 = st.columns(3)
+
+
+def start_crapp(video_id, results_number):
     
     comments = get_comments(video_id, DEVELOPER_KEY)
-    col1, col2 = st.columns(2)
-    with col1:
-        st.dataframe(perform_sentiment_analysis(eliminate_stopwords(words_count(comments))))
+
     with col2:
-        generate_wordcloud(eliminate_stopwords(words_count(comments)))
 
+        word_count_result, reformat_comments = words_count(comments)
+        top_words_without_stopwords = eliminate_stopwords(word_count_result, results_number)
+        st.header('Sentiment Analysis')
+        st.dataframe(data=perform_sentiment_analysis(top_words_without_stopwords, reformat_comments))
 
-
+    with col3:
+        generate_wordcloud(top_words_without_stopwords)
    
 def words_count(comments):
-     # Find top 3 most frequent words
+
     
     word_counts = Counter()
+    reformat_comments = []
+    
     for comment in comments:
-            # Split comments into lowercase words
-        words = comment.lower().split()
+        # Convert accented characters to ASCII and lowercase
+        comment = unidecode(comment).lower()
+        
+        # Remove time-like words (e.g., "1:23")
+        comment = re.sub(r'\b\d+[:.,;]+\d+\b', '', comment)
+        
+        # Remove symbols and non-alphanumeric characters
+        comment = re.sub(r'[^\w\s]', '', comment)
+
+        # we need to set the new comments because in the later match, word_counts may be different (Eg: "senora" vs "senora" with "enie")
+        reformat_comments.append(comment)
+        
+        # Split the comment into words and remove empty words
+        words = [word for word in comment.split() if word]
+
         word_counts.update(words)  # Update counter with each word
     
-    return word_counts
+    return word_counts, reformat_comments
 
 
-def eliminate_stopwords(all_words):
+def eliminate_stopwords(all_words, number_to_select):
 
     # nltk.download("stopwords_es")  # Download stopwords if not already available
     # nltk.download('punkt')
     from nltk.corpus import stopwords
     
     stopwords_spanish = set(stopwords.words('spanish'))
+    # stopwords_english = set(stopwords.words('english'))
 
-    # Get top 10 most frequent words (excluding stopwords)
+    # Get most frequent words (excluding stopwords)
     filtered_counts = Counter({word: count for word, count in all_words.items() if word not in stopwords_spanish})
-    top_10_words = filtered_counts.most_common(20)  # List of tuples (word, count)
 
-    # Create a list of the firts element of each tuple
-    first_element_top_10 = []
-    for element in top_10_words:
-       first_element_top_10.append(element[0])
+    print(filtered_counts)
+
+    top_words_tuple = filtered_counts.most_common(number_to_select)  # List of tuples (word, count)
+
+    print(top_words_tuple)
+
+    # Create a list of the firts element of each tuple. The word we are lookging for is formed: ('the word we are loogin for', numer of appearences)
+    first_element_top_words = []
+    for element in top_words_tuple:
+       first_element_top_words.append(element[0])
     
-    return first_element_top_10
+    return first_element_top_words
 
 
 def get_comments(video_id, developer_key):
-    """Retrieves comments from a YouTube video using the YouTube Data API v3.
+    """
+    Retrieves comments from a YouTube video using the YouTube Data API v3.
 
     Args:
         video_id (str): The ID of the YouTube video.
@@ -84,83 +125,94 @@ def get_comments(video_id, developer_key):
     initial_text = "Creating a service object & Retrieving comments"
     middle_text = "Getting pages (too many comments)"
 
-    
-    progress_bar = st.progress(50, text=initial_text)
+    with col1:
+        progress_bar = st.progress(50, text=initial_text)
 
-    # create a service object for interacting with the YouTube Data API v3
+        # create a service object for interacting with the YouTube Data API v3
 
-    youtube = googleapiclient.discovery.build(
-        "youtube", "v3", developerKey=developer_key
-    )
-    
-    request = youtube.commentThreads().list(
-        part="snippet", videoId=video_id, textFormat="plainText"
-    )
-    # retrieve comments for the specified video
-    response = request.execute()
-    
-    progress_bar.progress(80, text=middle_text)
-    comments = []
-    # list contains dictionaries representing individual comment threads
-    for item in response["items"]:
-        comment_text = item["snippet"]["topLevelComment"]["snippet"]['textDisplay'] # route inside the response for the actual comment
-        # comments.append({"text": comment_text})
-        comments.append(comment_text)
-
-    # Check for next page token and retrieve additional comments if needed
-        
-    next_page_token = response.get("nextPageToken")
-    while next_page_token:
-        request = youtube.commentThreads().list(
-            part="snippet", videoId=video_id, textFormat="plainText", pageToken=next_page_token
+        youtube = googleapiclient.discovery.build(
+            "youtube", "v3", developerKey=developer_key
         )
+        
+        request = youtube.commentThreads().list(
+            part="snippet", videoId=video_id, textFormat="plainText"
+        )
+        # retrieve comments for the specified video
         response = request.execute()
+        
+        progress_bar.progress(80, text=middle_text)
+        comments = []
+        # list contains dictionaries representing individual comment threads
         for item in response["items"]:
-            comment_text = item["snippet"]["topLevelComment"]["snippet"]['textDisplay']
+            comment_text = item["snippet"]["topLevelComment"]["snippet"]['textDisplay'] # route inside the response for the actual comment
             # comments.append({"text": comment_text})
             comments.append(comment_text)
+
+        # Check for next page token and retrieve additional comments if needed
+            
         next_page_token = response.get("nextPageToken")
+        while next_page_token:
+            request = youtube.commentThreads().list(
+                part="snippet", videoId=video_id, textFormat="plainText", pageToken=next_page_token
+            )
+            response = request.execute()
+            for item in response["items"]:
+                comment_text = item["snippet"]["topLevelComment"]["snippet"]['textDisplay']
+                # comments.append({"text": comment_text})
+                comments.append(comment_text)
+            next_page_token = response.get("nextPageToken")
 
 
-    progress_bar.empty()
-    st.success('Data OK --> Go to Results TAB')
+        progress_bar.empty()
+        st.success('Data OK')
     return comments
 
-def perform_sentiment_analysis(comments):
+def perform_sentiment_analysis(top_words_without_stopwords, comments):
     """Analyzes the sentiment of comments using VADER.
 
     Args:
+        top_words_without_stopwords (list): top N words based on repetition, cleaned from stopwords done by library and user
         comments (list): A list of dictionaries containing comment text.
 
     Returns:
         dict: A dictionary containing sentiment scores (positive, negative, neutral, compound)
     """
-
     analyzer = SentimentIntensityAnalyzer()
-    sentiment_scores = {"positive": 0, "negative": 0, "neutral": 0, "compound": 0}
+    all_scores = []
+    print(top_words_without_stopwords)
+    for word in top_words_without_stopwords:
+        comments_matched_for_the_word = 0
+        sentiment_scores = {"Positive": 0, "Negative": 0, "Neutral": 0}
+        for comment in comments:
+            if word in comment:
+                comments_matched_for_the_word += 1
 
-    for comment in comments:
+                scores = analyzer.polarity_scores(comment)
+                sentiment_scores["Positive"] += scores["pos"]
+                sentiment_scores["Negative"] += scores["neg"]
+                sentiment_scores["Neutral"] += scores["neu"]
 
-        scores = analyzer.polarity_scores(comment)
-        sentiment_scores["positive"]    += scores["pos"]
-        sentiment_scores["negative"]    += scores["neg"]
-        sentiment_scores["neutral"]     += scores["neu"]
-        sentiment_scores["compound"]    += scores["compound"]
+        # Calculate average scores
+        for key in sentiment_scores:
+            # sentiment_scores[key] /= round(comments_matched_for_the_word,2)
+            sentiment_scores[key] = round(sentiment_scores[key]/comments_matched_for_the_word*100,2)
 
-    # Calculate average scores
-    for key in sentiment_scores:
-        sentiment_scores[key] /= len(comments)
+        sentiment_scores["Comments"] = comments_matched_for_the_word
+        sentiment_scores["Word"] = word
 
-    return sentiment_scores
+        all_scores.append(sentiment_scores)
+
+    return all_scores
+
 
 def generate_wordcloud(comments):
 
-    from nltk.corpus import stopwords
     
-    # """Creates a word cloud visualization of frequently used words.
-    # Args:
-    #     comments (list): A list of dictionaries containing comment text.
-    # """
+    """Creates a word cloud visualization of frequently used words.
+    Args:
+        comments (list): A list of dictionaries containing comment text.
+    """
+    from nltk.corpus import stopwords
 
     # nltk.download("stopwords_es")  # Download stopwords if not already available
     # nltk.download('punkt')
@@ -184,35 +236,40 @@ def generate_wordcloud(comments):
     ).generate(" ".join(filtered_tokens))
 
 
-    st.subheader("Word Cloud")
+    st.header("Word Cloud")
     fig, ax = plt.subplots(figsize=(8, 6))
     ax.imshow(wordcloud)
     ax.axis("off")
     st.pyplot(fig)
 
-# if __name__ == "__main__":
-#     comments = get_comments(VIDEO_ID, DEVELOPER_KEY)
-#     print(perform_sentiment_analysis(comments))
-
-
 # Streamlit App
-st.header("CrApp Analyzer 1.0")
-st.subheader("Developed by: Martin Riveros")
+    
+with col1:
+    st.header("CrApp Analyzer 1.0")
+    st.subheader("Developed by: Martin Riveros")
 
-# Input field and description
-video_url = st.text_input("Enter YouTube video URL", placeholder="Paste YouTube video URL here")
-description = f"""For example:https://www.youtube.com/watch?v=Ds-vROxwmcs"""
+    # Input fields and description
+    video_url = st.text_input("Enter YouTube video URL", placeholder="Paste YouTube video URL here")
+    description = f"""For example: https://www.youtube.com/watch?v=Ds-vROxwmcs"""
+    st.markdown(description, unsafe_allow_html=True)
+    
+    results_number = st.selectbox("Select a number between 5 and 20", range(5, 21), index=0, format_func=lambda x: 'Select a number' if x == 5 else x)
 
-st.markdown(description, unsafe_allow_html=True)
+    # Enable or disable the button based on whether both inputs are provided
+    button_disabled = (not video_url) or (not results_number)
+    
+    # Extract video ID and show thumbnail (if valid URL)
+    video_id = get_video_id(video_url)
+    if video_id:
+        thumbnail_url = f"https://img.youtube.com/vi/{video_id}/0.jpg"  # YouTube thumbnail format
+        st.image(thumbnail_url, width=200)
+    else:
+        st.warning("Please enter a valid YouTube video URL.")
 
-# Extract video ID and show thumbnail (if valid URL)
-video_id = get_video_id(video_url)
-if video_id:
-  thumbnail_url = f"https://img.youtube.com/vi/{video_id}/0.jpg"  # YouTube thumbnail format
-  st.image(thumbnail_url, width=200)
-else:
-  st.warning("Please enter a valid YouTube video URL.")
-
-st.button("Show CrApp", on_click=lambda: start_crapp(video_id))
+    # Show the button with dynamic enable/disable based on inputs
+    if button_disabled:
+        st.button("Show CrApp", disabled=True)
+    else:
+        st.button("Show CrApp", on_click=lambda: start_crapp(video_id, results_number))
 
 
