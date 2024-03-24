@@ -20,7 +20,9 @@ st.set_page_config(
     page_icon=":poop:")
 
 # Your Streamlit app code goes here
+# Streamlit App
 
+st.header("CrApp 1.0, by Martin Riveros")
 
 # Function to extract video ID from URL
 def get_video_id(url):
@@ -44,16 +46,20 @@ DEVELOPER_KEY = os.environ.get('DEVELOPER_KEY')
 col1, col2, col3 = st.columns(3)
 
 
-def start_crapp(video_id, results_number):
+def start_crapp(video_id, results_number, additional_stopwords):
     
     comments = get_comments(video_id, DEVELOPER_KEY)
 
     with col2:
 
         word_count_result, reformat_comments = words_count(comments)
-        top_words_without_stopwords = eliminate_stopwords(word_count_result, results_number)
+        top_words_without_stopwords = eliminate_stopwords(word_count_result, results_number, additional_stopwords)
         st.header('Sentiment Analysis')
         st.dataframe(data=perform_sentiment_analysis(top_words_without_stopwords, reformat_comments))
+        
+        st.write(f'Total comments analized: {len(comments)}')
+        st.write(f'Total words analized: {len(word_count_result)}')
+
 
     with col3:
         generate_wordcloud(top_words_without_stopwords)
@@ -85,23 +91,21 @@ def words_count(comments):
     return word_counts, reformat_comments
 
 
-def eliminate_stopwords(all_words, number_to_select):
+def eliminate_stopwords(all_words, number_to_select, custom_selected_stopwords=[]):
 
     # nltk.download("stopwords_es")  # Download stopwords if not already available
     # nltk.download('punkt')
     from nltk.corpus import stopwords
     
-    stopwords_spanish = set(stopwords.words('spanish'))
+    stopwords_spanish = list(stopwords.words('spanish'))
+    stopwords_spanish.extend(custom_selected_stopwords)  # Add additional stopwords as needed
+    
     # stopwords_english = set(stopwords.words('english'))
 
     # Get most frequent words (excluding stopwords)
     filtered_counts = Counter({word: count for word, count in all_words.items() if word not in stopwords_spanish})
 
-    print(filtered_counts)
-
     top_words_tuple = filtered_counts.most_common(number_to_select)  # List of tuples (word, count)
-
-    print(top_words_tuple)
 
     # Create a list of the firts element of each tuple. The word we are lookging for is formed: ('the word we are loogin for', numer of appearences)
     first_element_top_words = []
@@ -179,12 +183,12 @@ def perform_sentiment_analysis(top_words_without_stopwords, comments):
     """
     analyzer = SentimentIntensityAnalyzer()
     all_scores = []
-    print(top_words_without_stopwords)
+
     for word in top_words_without_stopwords:
         comments_matched_for_the_word = 0
         sentiment_scores = {"Positive": 0, "Negative": 0, "Neutral": 0}
         for comment in comments:
-            if word in comment:
+            if word in comment.split():
                 comments_matched_for_the_word += 1
 
                 scores = analyzer.polarity_scores(comment)
@@ -219,8 +223,6 @@ def generate_wordcloud(comments):
 
     stopwords = stopwords.words('spanish')
 
-    # stopwords.add("jajajaja")  # Add additional stopwords as needed
-
     comment_text = " ".join([comment for comment in comments])
     text = comment_text.lower()  # Convert to lowercase
 
@@ -241,35 +243,38 @@ def generate_wordcloud(comments):
     ax.imshow(wordcloud)
     ax.axis("off")
     st.pyplot(fig)
-
-# Streamlit App
     
 with col1:
-    st.header("CrApp Analyzer 1.0")
-    st.subheader("Developed by: Martin Riveros")
+
+    st.header('Selection Zone')
 
     # Input fields and description
     video_url = st.text_input("Enter YouTube video URL", placeholder="Paste YouTube video URL here")
-    description = f"""For example: https://www.youtube.com/watch?v=Ds-vROxwmcs"""
-    st.markdown(description, unsafe_allow_html=True)
+    description = f"""Example: https://www.youtube.com/watch?v=Ds-vROxwmcs"""
+    st.caption(description, unsafe_allow_html=True)
     
-    results_number = st.selectbox("Select a number between 5 and 20", range(5, 21), index=0, format_func=lambda x: 'Select a number' if x == 5 else x)
+    results_number = st.selectbox("Select a number between 5 and 20", range(4, 21), index=0, format_func=lambda x: 'Select a number' if x == 4 else x)
 
     # Enable or disable the button based on whether both inputs are provided
     button_disabled = (not video_url) or (not results_number)
     
-    # Extract video ID and show thumbnail (if valid URL)
-    video_id = get_video_id(video_url)
-    if video_id:
-        thumbnail_url = f"https://img.youtube.com/vi/{video_id}/0.jpg"  # YouTube thumbnail format
-        st.image(thumbnail_url, width=200)
-    else:
-        st.warning("Please enter a valid YouTube video URL.")
-
-    # Show the button with dynamic enable/disable based on inputs
-    if button_disabled:
-        st.button("Show CrApp", disabled=True)
-    else:
-        st.button("Show CrApp", on_click=lambda: start_crapp(video_id, results_number))
+    cola, colb = st.columns(2)
+    with cola:
+        # Extract video ID and show thumbnail (if valid URL)
+        video_id = get_video_id(video_url)
+        if video_id:
+            thumbnail_url = f"https://img.youtube.com/vi/{video_id}/0.jpg"  # YouTube thumbnail format
+            st.image(thumbnail_url, width=200)
+        else:
+            st.warning("Please enter a valid YouTube video URL.")
+    with colb:
+        # Show the button with dynamic enable/disable based on inputs
+        if button_disabled:
+            st.button("Show CrApp", disabled=True)
+        else:
+            word_count_result, reformat_comments = words_count(get_comments(video_id, DEVELOPER_KEY))
+            top_words_without_stopwords = eliminate_stopwords(word_count_result, results_number)
+            additional_stopwords = st.multiselect('Filter words', word_count_result)
+            st.button("Show CrApp", on_click=lambda: start_crapp(video_id, results_number, additional_stopwords))
 
 
