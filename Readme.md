@@ -7,14 +7,12 @@ This Streamlit app searches for any You Tube video, gets all comments on the vid
 
 **Work in progress**
 
-
 <h2>Some known issues</h2>
 
 - It works for spanish comments
-- Inconsistent values in comments
+
 
 <h2>TODO</h2>
 
-- Add Stopwords by user to filter results
 - Add similar words selected by users to group results
 
